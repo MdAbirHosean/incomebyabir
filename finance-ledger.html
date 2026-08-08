@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#12151C" />
+<title>Finance Ledger</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2222%22 fill=%22%23E8A33D%22/><text x=%2250%22 y=%2268%22 font-size=%2260%22 text-anchor=%22middle%22 fill=%22%2312151C%22 font-family=%22sans-serif%22>%E0%A7%B3</text></svg>" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html,body,#root{height:100%;margin:0;}
+  body{font-family:'Inter',sans-serif;}
+  .font-display{font-family:'Sora',sans-serif;}
+  .font-num{font-family:'JetBrains Mono',monospace;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#E8A33D55;border-radius:4px;}
+  @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .sheet-panel{animation:sheetUp .28s cubic-bezier(.32,.72,0,1);}
+  .sheet-backdrop{animation:fadeIn .2s ease-out;}
+  .tap{-webkit-tap-highlight-color:transparent;transition:transform .1s ease-out;}
+  .tap:active{transform:scale(0.96);}
+  .fab{animation:fadeIn .25s ease-out;}
+  @media print{ .no-print{display:none !important;} .print-area{display:block !important;} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---------- constants ----------
+const STORAGE_KEY = "finance-dashboard-standalone-v1";
+const WORK_TYPES = ["Video Editing", "Thumbnail Design", "Graphic Design", "Other"];
+const PAY_METHODS = ["bKash", "Nagad", "Bank", "Payoneer", "Cash", "Other"];
+const EXP_CATEGORIES = [
+  { key: "খাবার", emoji: "🍛" },
+  { key: "যাতায়াত", emoji: "🚗" },
+  { key: "বাসা", emoji: "🏠" },
+  { key: "ইন্টারনেট", emoji: "📶" },
+  { key: "সফটওয়্যার", emoji: "💻" },
+  { key: "অন্যান্য", emoji: "🎁" },
+];
+const MAIN_TABS = [
+  { key: "dashboard", label: "হোম", emoji: "🏠" },
+  { key: "income", label: "আয়", emoji: "💵" },
+  { key: "expense", label: "ব্যয়", emoji: "💸" },
+  { key: "goal", label: "লক্ষ্য", emoji: "🎯" },
+];
+const MORE_TABS = [
+  { key: "reports", label: "রিপোর্ট", emoji: "📊" },
+  { key: "calendar", label: "ক্যালেন্ডার", emoji: "📅" },
+  { key: "invoice", label: "ইনভয়েস", emoji: "🧾" },
+];
+const ALL_TABS = [...MAIN_TABS, ...MORE_TABS];
+const PIE_COLORS = ["#E8A33D", "#4FD1AE", "#6C8CFF", "#F0654B", "#B98BEF", "#5CC8E8"];
+
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const fmt = (n) => "৳" + (Number(n) || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const monthKey = (d) => d.slice(0, 7);
+
+const DEFAULT_DATA = {
+  income: [],
+  expenses: [],
+  goal: { target: 200000, deadline: "", dailyBudget: 0 },
+  settings: { dark: true },
+};
+
+function FinanceDashboard() {
+  const [data, setData] = useState(DEFAULT_DATA);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("dashboard");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setData({ ...DEFAULT_DATA, ...JSON.parse(raw) });
+    } catch (e) {}
+    setLoaded(true);
+  }, []);
+
+  const persist = useCallback((next) => {
+    setData(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e) {}
+  }, []);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+  const dark = data.settings.dark;
+  const toggleDark = () => persist({ ...data, settings: { ...data.settings, dark: !dark } });
+
+  const paidIncome = useMemo(() => data.income.filter(i => i.status === "Paid").reduce((s,i)=>s+Number(i.amount),0), [data.income]);
+  const pendingIncome = useMemo(() => data.income.filter(i => i.status === "Pending").reduce((s,i)=>s+Number(i.amount),0), [data.income]);
+  const totalExpense = useMemo(() => data.expenses.reduce((s,e)=>s+Number(e.amount),0), [data.expenses]);
+  const savings = paidIncome - totalExpense;
+  const goalTarget = Number(data.goal.target) || 0;
+  const progressPct = goalTarget > 0 ? Math.min(100, Math.max(0, (savings / goalTarget) * 100)) : 0;
+  const remaining = Math.max(0, goalTarget - savings);
+
+  const daysLeft = useMemo(() => {
+    if (!data.goal.deadline) return null;
+    const diff = Math.ceil((new Date(data.goal.deadline) - new Date(todayISO())) / 86400000);
+    return diff > 0 ? diff : 0;
+  }, [data.goal.deadline]);
+  const dailyNeeded = daysLeft && daysLeft > 0 ? remaining / daysLeft : null;
+
+  const todayHasIncome = data.income.some(i => i.date === todayISO());
+  const todayExpenseTotal = data.expenses.filter(e => e.date === todayISO()).reduce((s,e)=>s+Number(e.amount),0);
+  const overDailyBudget = Number(data.goal.dailyBudget) > 0 && todayExpenseTotal > Number(data.goal.dailyBudget);
+  const thisMonth = todayISO().slice(0,7);
+  const monthIncomeSoFar = data.income.filter(i => i.status === "Paid" && monthKey(i.date) === thisMonth).reduce((s,i)=>s+Number(i.amount),0);
+  const dayOfMonth = new Date().getDate();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+  const expectedShare = dayOfMonth / daysInMonth;
+  const behindGoal = goalTarget > 0 && monthIncomeSoFar < (goalTarget/12) * expectedShare * 0.6;
+
+  const reminders = [];
+  if (!todayHasIncome) reminders.push({ emoji: "💵", text: "আজ কোনো ইনকাম যোগ করা হয়নি" });
+  if (overDailyBudget) reminders.push({ emoji: "💸", text: "আজকের বাজেট শেষ হয়ে গেছে" });
+  if (data.goal.deadline && behindGoal) reminders.push({ emoji: "🎯", text: "মাসের লক্ষ্য থেকে পিছিয়ে আছেন" });
+
+  const addIncome = (entry) => persist({ ...data, income: [{ ...entry, id: uid() }, ...data.income] });
+  const deleteIncome = (id) => persist({ ...data, income: data.income.filter(i => i.id !== id) });
+  const togglePaid = (id) => persist({ ...data, income: data.income.map(i => i.id === id ? { ...i, status: i.status === "Paid" ? "Pending" : "Paid" } : i) });
+  const addExpense = (entry) => persist({ ...data, expenses: [{ ...entry, id: uid() }, ...data.expenses] });
+  const deleteExpense = (id) => persist({ ...data, expenses: data.expenses.filter(e => e.id !== id) });
+  const updateGoal = (g) => persist({ ...data, goal: { ...data.goal, ...g } });
+
+  const exportCSV = (which) => {
+    const rows = which === "income" ? data.income : data.expenses;
+    if (!rows.length) return showToast("এক্সপোর্ট করার মতো কোনো ডেটা নেই");
+    const headers = which === "income" ? ["date","client","workType","amount","method","status"] : ["date","category","amount","note"];
+    const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${String(r[h] ?? "").replace(/"/g,'""')}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `${which}-${todayISO()}.csv`; a.click();
+    URL.revokeObjectURL(url); showToast("CSV ডাউনলোড হয়েছে");
+  };
+  const exportBackup = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `finance-backup-${todayISO()}.json`; a.click();
+    URL.revokeObjectURL(url); showToast("ব্যাকআপ ফাইল ডাউনলোড হয়েছে");
+  };
+  const importBackup = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { persist({ ...DEFAULT_DATA, ...JSON.parse(reader.result) }); showToast("ব্যাকআপ থেকে ডেটা লোড হয়েছে"); }
+      catch { showToast("ফাইলটি সঠিক নয়"); }
+    };
+    reader.readAsText(file);
+  };
+
+  if (!loaded) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#12151C] text-[#E9E9EF]"><div className="animate-pulse font-mono text-sm tracking-wider">লোড হচ্ছে…</div></div>;
+  }
+
+  const theme = dark ? {
+    bg: "bg-[#12151C]", surface: "bg-[#1B1F29]", surface2: "bg-[#20242F]",
+    border: "border-[#2A2F3C]", text: "text-[#E9E9EF]", muted: "text-[#8A8FA3]",
+  } : {
+    bg: "bg-[#F5F4F0]", surface: "bg-white", surface2: "bg-[#FBFAF7]",
+    border: "border-[#E4E1D8]", text: "text-[#1C1B18]", muted: "text-[#7A7669]",
+  };
+
+  const activeMeta = ALL_TABS.find(t => t.key === tab);
+
+  return (
+    <div className={`min-h-screen ${theme.bg} ${theme.text}`}>
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 no-print" style={{background: dark ? "#1B1F29" : "#fff", borderBottom: `1px solid ${dark ? "#2A2F3C" : "#E4E1D8"}`}}>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-md bg-[#E8A33D] flex items-center justify-center font-display font-800 text-[#12151C] text-xs">৳</div>
+          <span className="font-display font-700 text-sm">{activeMeta ? activeMeta.label : "Finance Ledger"}</span>
+        </div>
+        <button onClick={toggleDark} className="p-2 tap text-lg">{dark ? "☀️" : "🌙"}</button>
+      </div>
+
+      <div className="hidden md:flex items-center justify-between px-8 py-4 no-print" style={{borderBottom: `1px solid ${dark ? "#2A2F3C" : "#E4E1D8"}`}}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-md bg-[#E8A33D] flex items-center justify-center font-display font-800 text-[#12151C] text-sm">৳</div>
+          <span className="font-display font-700 text-lg">Finance Ledger</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {ALL_TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-3 py-2 rounded-lg text-sm tap ${tab===t.key ? "bg-[#E8A33D] text-[#12151C] font-600" : theme.muted}`}>
+              {t.emoji} {t.label}
+            </button>
+          ))}
+          <button onClick={toggleDark} className="ml-2 p-2 tap text-lg">{dark ? "☀️" : "🌙"}</button>
+        </div>
+      </div>
+
+      <main className="max-w-3xl mx-auto px-4 md:px-8 py-6 pt-20 md:pt-6 pb-28 md:pb-10">
+        {tab === "dashboard" && <Dashboard theme={theme} paidIncome={paidIncome} pendingIncome={pendingIncome} totalExpense={totalExpense} savings={savings} goal={data.goal} progressPct={progressPct} dailyNeeded={dailyNeeded} reminders={reminders} recentIncome={data.income.slice(0,4)} recentExpense={data.expenses.slice(0,4)} />}
+        {tab === "income" && <IncomeView theme={theme} income={data.income} onAdd={addIncome} onDelete={deleteIncome} onTogglePaid={togglePaid} onExport={() => exportCSV("income")} />}
+        {tab === "expense" && <ExpenseView theme={theme} expenses={data.expenses} onAdd={addExpense} onDelete={deleteExpense} onExport={() => exportCSV("expense")} />}
+        {tab === "goal" && <GoalView theme={theme} goal={data.goal} savings={savings} progressPct={progressPct} remaining={remaining} daysLeft={daysLeft} dailyNeeded={dailyNeeded} onUpdate={updateGoal} />}
+        {tab === "reports" && <ReportsView theme={theme} income={data.income} expenses={data.expenses} />}
+        {tab === "calendar" && <CalendarView theme={theme} income={data.income} expenses={data.expenses} />}
+        {tab === "invoice" && <InvoiceView theme={theme} showToast={showToast} />}
+
+        <div className={`mt-10 pt-6 border-t ${theme.border} no-print`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`text-xs ${theme.muted} font-num`}>ব্যাকআপ:</span>
+            <button onClick={exportBackup} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border ${theme.border} ${theme.muted} tap`}>⬇️ Export JSON</button>
+            <label className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border ${theme.border} ${theme.muted} tap cursor-pointer`}>
+              ⬆️ Import JSON
+              <input type="file" accept="application/json" className="hidden" onChange={(e)=> e.target.files[0] && importBackup(e.target.files[0])} />
+            </label>
+          </div>
+          <div className={`text-[11px] ${theme.muted} mt-2`}>এই ডেটা শুধু এই ব্রাউজারেই থাকে — নিয়মিত ব্যাকআপ নিয়ে রাখুন।</div>
+        </div>
+      </main>
+
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-30 flex no-print`} style={{background: dark ? "#1B1F29" : "#fff", borderTop: `1px solid ${dark ? "#2A2F3C" : "#E4E1D8"}`, paddingBottom: "env(safe-area-inset-bottom)"}}>
+        {MAIN_TABS.map(t => (
+          <button key={t.key} onClick={() => { setTab(t.key); setMoreOpen(false); }}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] tap ${tab===t.key ? "text-[#E8A33D]" : theme.muted}`}>
+            <span className="text-lg leading-none">{t.emoji}</span>{t.label}
+          </button>
+        ))}
+        <button onClick={() => setMoreOpen(true)} className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] tap ${MORE_TABS.some(m=>m.key===tab) ? "text-[#E8A33D]" : theme.muted}`}>
+          <span className="text-lg leading-none">☰</span>আরও
+        </button>
+      </div>
+
+      {moreOpen && (
+        <BottomSheet theme={theme} title="আরও" open={moreOpen} onClose={() => setMoreOpen(false)}>
+          <div className="grid grid-cols-3 gap-3">
+            {MORE_TABS.map(t => (
+              <button key={t.key} onClick={() => { setTab(t.key); setMoreOpen(false); }}
+                className={`${theme.surface2} border ${theme.border} rounded-xl py-4 flex flex-col items-center gap-1 tap`}>
+                <span className="text-xl">{t.emoji}</span>
+                <span className="text-xs">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </BottomSheet>
+      )}
+
+      {toast && <div className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 bg-[#E8A33D] text-[#12151C] text-sm font-600 px-4 py-2 rounded-lg shadow-lg z-50 no-print">{toast}</div>}
+    </div>
+  );
+}
+
+function BottomSheet({ theme, title, open, onClose, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end no-print">
+      <div className="absolute inset-0 bg-black/50 sheet-backdrop" onClick={onClose}></div>
+      <div className={`relative w-full md:max-w-md md:mx-auto ${theme.surface} rounded-t-3xl p-5 sheet-panel max-h-[85vh] overflow-y-auto`} style={{paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)"}}>
+        <div className="w-10 h-1 rounded-full bg-current opacity-20 mx-auto mb-4"></div>
+        <div className="flex items-center justify-between mb-4">
+          <span className="font-display font-700 text-lg">{title}</span>
+          <button onClick={onClose} className={`p-1.5 rounded-full ${theme.surface2} tap`}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Fab({ onClick, color = "#E8A33D", textColor = "#12151C" }) {
+  return (
+    <button onClick={onClick} className="fab tap fixed z-40 right-5 w-14 h-14 rounded-full shadow-lg flex items-center justify-center no-print text-2xl"
+      style={{ background: color, color: textColor, bottom: "calc(env(safe-area-inset-bottom) + 84px)" }}>
+      +
+    </button>
+  );
+}
+function Field({ label, children }) {
+  return <label className="flex flex-col gap-1 text-xs"><span className="opacity-70">{label}</span>{children}</label>;
+}
+function inputCls(theme) { return `${theme.surface2} border ${theme.border} rounded-lg px-3 py-2 text-sm outline-none focus:border-[#E8A33D] ${theme.text}`; }
+
+function StatCard({ theme, emoji, label, value, accent, sub }) {
+  return (
+    <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className={`text-xs ${theme.muted}`}>{label}</span>
+        <span className="text-sm">{emoji}</span>
+      </div>
+      <div className="font-num text-xl font-600" style={{color: accent}}>{value}</div>
+      {sub && <div className={`text-[11px] ${theme.muted} mt-1`}>{sub}</div>}
+    </div>
+  );
+}
+
+function Dashboard({ theme, paidIncome, pendingIncome, totalExpense, savings, goal, progressPct, dailyNeeded, reminders, recentIncome, recentExpense }) {
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-700 mb-1">ড্যাশবোর্ড</h1>
+      <p className={`text-sm ${theme.muted} mb-6`}>আজকের আর্থিক অবস্থার সারসংক্ষেপ</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <StatCard theme={theme} emoji="📈" label="মোট আয়" value={fmt(paidIncome)} accent="#4FD1AE" sub={`পেন্ডিং ${fmt(pendingIncome)}`} />
+        <StatCard theme={theme} emoji="📉" label="মোট ব্যয়" value={fmt(totalExpense)} accent="#F0654B" />
+        <StatCard theme={theme} emoji="🏦" label="বর্তমান সঞ্চয়" value={fmt(savings)} accent="#E8A33D" />
+        <StatCard theme={theme} emoji="🎯" label="আজ আয় করা দরকার" value={dailyNeeded ? fmt(Math.round(dailyNeeded)) : "—"} accent="#6C8CFF" sub={dailyNeeded ? "লক্ষ্য পূরণে" : "ডেডলাইন সেট করুন"} />
+      </div>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-5 mb-6`}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-600">লক্ষ্য: {fmt(goal.target)}</span>
+          <span className="font-num text-sm text-[#E8A33D]">{progressPct.toFixed(1)}%</span>
+        </div>
+        <div className={`h-3 rounded-full ${theme.surface2} overflow-hidden`}>
+          <div className="h-full rounded-full" style={{width: `${progressPct}%`, background: "linear-gradient(90deg,#E8A33D,#F0C77A)"}}></div>
+        </div>
+        <div className={`text-xs ${theme.muted} mt-2`}>বর্তমান সঞ্চয় {fmt(savings)} / লক্ষ্য {fmt(goal.target)}</div>
+      </div>
+      {reminders.length > 0 && (
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 mb-6`}>
+          <div className="flex items-center gap-2 mb-3 text-sm font-600">🔔 রিমাইন্ডার</div>
+          <div className="flex flex-col gap-2">
+            {reminders.map((r,i) => <div key={i} className={`flex items-center gap-2 text-sm ${theme.muted}`}>{r.emoji} {r.text}</div>)}
+          </div>
+        </div>
+      )}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-sm font-600 mb-3">সাম্প্রতিক আয়</div>
+          {recentIncome.length === 0 && <div className={`text-xs ${theme.muted}`}>এখনো কোনো আয় যোগ করা হয়নি</div>}
+          {recentIncome.map(i => <div key={i.id} className="flex justify-between items-center py-1.5 text-sm"><span className={theme.muted}>{i.client || i.workType}</span><span className="font-num text-[#4FD1AE]">{fmt(i.amount)}</span></div>)}
+        </div>
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-sm font-600 mb-3">সাম্প্রতিক ব্যয়</div>
+          {recentExpense.length === 0 && <div className={`text-xs ${theme.muted}`}>এখনো কোনো ব্যয় যোগ করা হয়নি</div>}
+          {recentExpense.map(e => <div key={e.id} className="flex justify-between items-center py-1.5 text-sm"><span className={theme.muted}>{e.category}</span><span className="font-num text-[#F0654B]">{fmt(e.amount)}</span></div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IncomeView({ theme, income, onAdd, onDelete, onTogglePaid, onExport }) {
+  const [showForm, setShowForm] = useState(false);
+  const [query, setQuery] = useState("");
+  const [form, setForm] = useState({ date: todayISO(), client: "", workType: WORK_TYPES[0], amount: "", method: PAY_METHODS[0], status: "Paid" });
+  const filtered = income.filter(i => i.client.toLowerCase().includes(query.toLowerCase()) || i.workType.toLowerCase().includes(query.toLowerCase()));
+  const submit = () => { if (!form.amount) return; onAdd({ ...form, amount: Number(form.amount) }); setForm({ ...form, client: "", amount: "" }); setShowForm(false); };
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h1 className="font-display text-2xl font-700">আয়</h1>
+        <button onClick={onExport} className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${theme.border} ${theme.muted} tap`}>⬇️ CSV</button>
+      </div>
+      <div className={`flex items-center gap-2 mb-3 ${theme.surface} border ${theme.border} rounded-lg px-3 py-2.5`}>
+        <span>🔍</span>
+        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ক্লায়েন্ট বা কাজের ধরন খুঁজুন" className={`bg-transparent outline-none text-sm flex-1 ${theme.text}`} />
+      </div>
+      <div className="flex flex-col gap-2">
+        {filtered.length === 0 && <div className={`text-sm ${theme.muted} text-center py-10`}>কোনো আয় পাওয়া যায়নি<br/><span className="text-xs">নিচের + বাটনে চাপ দিয়ে যোগ করুন</span></div>}
+        {filtered.map(i => (
+          <div key={i.id} className={`${theme.surface} border ${theme.border} rounded-xl p-3.5 flex items-center justify-between gap-3`}>
+            <div className="min-w-0">
+              <div className="text-sm font-600 truncate">{i.client || "নাম নেই"} · {i.workType}</div>
+              <div className={`text-[11px] ${theme.muted} font-num mt-0.5`}>{i.date} · {i.method}</div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={()=>onTogglePaid(i.id)} className={`text-[10px] px-2.5 py-1.5 rounded-full tap ${i.status==="Paid" ? "bg-[#4FD1AE22] text-[#4FD1AE]" : "bg-[#E8A33D22] text-[#E8A33D]"}`}>{i.status==="Paid"?"✓":"⏳"} {i.status}</button>
+              <span className="font-num text-sm text-[#4FD1AE]">{fmt(i.amount)}</span>
+              <button onClick={()=>onDelete(i.id)} className={`p-2 -mr-1 ${theme.muted} tap`}>🗑️</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <Fab onClick={() => setShowForm(true)} color="#4FD1AE" />
+      <BottomSheet theme={theme} title="নতুন আয় যোগ করুন" open={showForm} onClose={()=>setShowForm(false)}>
+        <div className="grid gap-3">
+          <Field label="তারিখ"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className={inputCls(theme)} /></Field>
+          <Field label="ক্লায়েন্টের নাম"><input value={form.client} onChange={e=>setForm({...form,client:e.target.value})} placeholder="যেমন: Rahim" className={inputCls(theme)} /></Field>
+          <Field label="কাজের ধরন"><select value={form.workType} onChange={e=>setForm({...form,workType:e.target.value})} className={inputCls(theme)}>{WORK_TYPES.map(w=><option key={w}>{w}</option>)}</select></Field>
+          <Field label="পরিমাণ"><input type="number" inputMode="numeric" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="৳" className={inputCls(theme)} /></Field>
+          <Field label="Payment Method"><select value={form.method} onChange={e=>setForm({...form,method:e.target.value})} className={inputCls(theme)}>{PAY_METHODS.map(m=><option key={m}>{m}</option>)}</select></Field>
+          <Field label="স্ট্যাটাস">
+            <div className="grid grid-cols-2 gap-2">
+              {["Paid","Pending"].map(s => <button key={s} onClick={()=>setForm({...form,status:s})} className={`py-2.5 rounded-lg text-sm border tap ${form.status===s ? "bg-[#4FD1AE22] border-[#4FD1AE] text-[#4FD1AE]" : `${theme.border} ${theme.muted}`}`}>{s}</button>)}
+            </div>
+          </Field>
+          <button onClick={submit} className="mt-2 w-full py-3.5 rounded-xl bg-[#4FD1AE] text-[#12151C] font-600 text-sm tap">যোগ করুন</button>
+        </div>
+      </BottomSheet>
+    </div>
+  );
+}
+
+function ExpenseView({ theme, expenses, onAdd, onDelete, onExport }) {
+  const [showForm, setShowForm] = useState(false);
+  const [query, setQuery] = useState("");
+  const [form, setForm] = useState({ date: todayISO(), category: EXP_CATEGORIES[0].key, amount: "", note: "" });
+  const filtered = expenses.filter(e => e.category.includes(query) || e.note.toLowerCase().includes(query.toLowerCase()));
+  const submit = () => { if (!form.amount) return; onAdd({ ...form, amount: Number(form.amount) }); setForm({ ...form, amount: "", note: "" }); setShowForm(false); };
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h1 className="font-display text-2xl font-700">ব্যয়</h1>
+        <button onClick={onExport} className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border ${theme.border} ${theme.muted} tap`}>⬇️ CSV</button>
+      </div>
+      <div className={`flex items-center gap-2 mb-3 ${theme.surface} border ${theme.border} rounded-lg px-3 py-2.5`}>
+        <span>🔍</span>
+        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ক্যাটাগরি বা নোট খুঁজুন" className={`bg-transparent outline-none text-sm flex-1 ${theme.text}`} />
+      </div>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {EXP_CATEGORIES.map(c => (
+          <button key={c.key} onClick={() => { setForm({...form, category:c.key}); setShowForm(true); }} className={`${theme.surface} border ${theme.border} rounded-xl py-3 flex flex-col items-center gap-1 tap`}>
+            <span className="text-lg">{c.emoji}</span><span className="text-[10px]">{c.key}</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2">
+        {filtered.length === 0 && <div className={`text-sm ${theme.muted} text-center py-6`}>কোনো ব্যয় পাওয়া যায়নি</div>}
+        {filtered.map(e => {
+          const cat = EXP_CATEGORIES.find(c => c.key === e.category);
+          return (
+            <div key={e.id} className={`${theme.surface} border ${theme.border} rounded-xl p-3.5 flex items-center justify-between gap-3`}>
+              <div className="min-w-0">
+                <div className="text-sm font-600 truncate">{cat && cat.emoji} {e.category} {e.note && `· ${e.note}`}</div>
+                <div className={`text-[11px] ${theme.muted} font-num mt-0.5`}>{e.date}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-num text-sm text-[#F0654B]">{fmt(e.amount)}</span>
+                <button onClick={()=>onDelete(e.id)} className={`p-2 -mr-1 ${theme.muted} tap`}>🗑️</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Fab onClick={() => setShowForm(true)} color="#F0654B" textColor="#fff" />
+      <BottomSheet theme={theme} title="নতুন ব্যয় যোগ করুন" open={showForm} onClose={()=>setShowForm(false)}>
+        <div className="grid gap-3">
+          <Field label="তারিখ"><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})} className={inputCls(theme)} /></Field>
+          <Field label="ক্যাটাগরি">
+            <div className="grid grid-cols-3 gap-2">
+              {EXP_CATEGORIES.map(c => <button key={c.key} onClick={()=>setForm({...form,category:c.key})} className={`py-2.5 rounded-lg text-xs border flex flex-col items-center gap-1 tap ${form.category===c.key ? "bg-[#F0654B22] border-[#F0654B] text-[#F0654B]" : `${theme.border} ${theme.muted}`}`}><span className="text-base">{c.emoji}</span>{c.key}</button>)}
+            </div>
+          </Field>
+          <Field label="পরিমাণ"><input type="number" inputMode="numeric" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="৳" className={inputCls(theme)} /></Field>
+          <Field label="নোট"><input value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="ঐচ্ছিক" className={inputCls(theme)} /></Field>
+          <button onClick={submit} className="mt-2 w-full py-3.5 rounded-xl bg-[#F0654B] text-white font-600 text-sm tap">যোগ করুন</button>
+        </div>
+      </BottomSheet>
+    </div>
+  );
+}
+
+function GoalView({ theme, goal, savings, progressPct, remaining, daysLeft, dailyNeeded, onUpdate }) {
+  const [target, setTarget] = useState(goal.target);
+  const [deadline, setDeadline] = useState(goal.deadline);
+  const [dailyBudget, setDailyBudget] = useState(goal.dailyBudget);
+  const barLen = 20;
+  const filled = Math.round((progressPct/100)*barLen);
+  const bar = "█".repeat(filled) + "░".repeat(barLen-filled);
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-700 mb-1">লক্ষ্য ট্র্যাকার</h1>
+      <p className={`text-sm ${theme.muted} mb-6`}>আপনার সঞ্চয়ের লক্ষ্য নির্ধারণ ও ট্র্যাক করুন</p>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-5 mb-6`}>
+        <div className="font-num text-sm mb-3">লক্ষ্য: {fmt(target)}<br/>বর্তমান: {fmt(savings)}<br/>Progress: <span className="text-[#E8A33D]">{bar}</span> {progressPct.toFixed(0)}%</div>
+        <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
+          <div><span className={theme.muted}>বাকি</span><div className="font-num text-[#F0654B]">{fmt(remaining)}</div></div>
+          <div><span className={theme.muted}>প্রতিদিন আয় দরকার</span><div className="font-num text-[#6C8CFF]">{dailyNeeded ? fmt(Math.round(dailyNeeded)) : "—"}</div></div>
+        </div>
+        {daysLeft !== null && <div className={`text-xs mt-3 ${daysLeft>0 ? theme.muted : "text-[#F0654B]"}`}>{daysLeft>0 ? `ডেডলাইনের বাকি ${daysLeft} দিন` : "ডেডলাইন পার হয়ে গেছে"}</div>}
+      </div>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 grid sm:grid-cols-3 gap-3`}>
+        <Field label="লক্ষ্যের পরিমাণ (৳)"><input type="number" value={target} onChange={e=>setTarget(e.target.value)} className={inputCls(theme)} /></Field>
+        <Field label="ডেডলাইন"><input type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} className={inputCls(theme)} /></Field>
+        <Field label="দৈনিক বাজেট (৳, ঐচ্ছিক)"><input type="number" value={dailyBudget} onChange={e=>setDailyBudget(e.target.value)} className={inputCls(theme)} /></Field>
+        <div className="sm:col-span-3 flex justify-end">
+          <button onClick={()=>onUpdate({ target: Number(target), deadline, dailyBudget: Number(dailyBudget) })} className="text-xs px-4 py-2 rounded-lg bg-[#E8A33D] text-[#12151C] font-600 tap">সংরক্ষণ করুন</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SimpleBarChart({ theme, data }) {
+  const max = Math.max(1, ...data.flatMap(d => [d.income, d.expense]));
+  return (
+    <div className="flex items-end gap-3 h-52 pt-4">
+      {data.map((d,i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+          <div className="w-full flex items-end gap-1 h-40">
+            <div className="flex-1 rounded-t-md" style={{height: `${(d.income/max)*100}%`, background: "#4FD1AE"}}></div>
+            <div className="flex-1 rounded-t-md" style={{height: `${(d.expense/max)*100}%`, background: "#F0654B"}}></div>
+          </div>
+          <span className={`text-[9px] ${theme.muted} font-num`}>{d.month.slice(5)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportsView({ theme, income, expenses }) {
+  const months = useMemo(() => {
+    const set = new Set([...income.map(i=>monthKey(i.date)), ...expenses.map(e=>monthKey(e.date))]);
+    return Array.from(set).sort();
+  }, [income, expenses]);
+  const monthlyData = months.map(m => ({
+    month: m,
+    income: income.filter(i=>i.status==="Paid" && monthKey(i.date)===m).reduce((s,i)=>s+Number(i.amount),0),
+    expense: expenses.filter(e=>monthKey(e.date)===m).reduce((s,e)=>s+Number(e.amount),0),
+  }));
+  const categoryData = EXP_CATEGORIES.map(c => ({ name: c.key, emoji: c.emoji, value: expenses.filter(e=>e.category===c.key).reduce((s,e)=>s+Number(e.amount),0) })).filter(c=>c.value>0);
+  const catMax = Math.max(1, ...categoryData.map(c=>c.value));
+  const clientTotals = {};
+  income.forEach(i => { const key = i.client || "অজানা"; clientTotals[key] = (clientTotals[key]||0) + Number(i.amount); });
+  const topClients = Object.entries(clientTotals).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-700 mb-6">রিপোর্ট</h1>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-4 mb-5`}>
+        <div className="text-sm font-600 mb-1">মাসভিত্তিক আয় বনাম ব্যয়</div>
+        <div className="flex items-center gap-4 text-[11px] mb-2">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{background:"#4FD1AE"}}></span>আয়</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm inline-block" style={{background:"#F0654B"}}></span>ব্যয়</span>
+        </div>
+        {monthlyData.length === 0 ? <div className={`text-xs ${theme.muted} py-6 text-center`}>এখনো কোনো ডেটা নেই</div> : <SimpleBarChart theme={theme} data={monthlyData} />}
+      </div>
+      <div className="grid md:grid-cols-2 gap-5">
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-sm font-600 mb-3">ক্যাটাগরি অনুযায়ী ব্যয়</div>
+          {categoryData.length === 0 ? <div className={`text-xs ${theme.muted} py-6 text-center`}>এখনো কোনো ব্যয় নেই</div> : (
+            <div className="flex flex-col gap-2.5">
+              {categoryData.map((c,idx) => (
+                <div key={c.name}>
+                  <div className="flex justify-between text-xs mb-1"><span>{c.emoji} {c.name}</span><span className="font-num">{fmt(c.value)}</span></div>
+                  <div className={`h-2 rounded-full ${theme.surface2} overflow-hidden`}><div className="h-full rounded-full" style={{width:`${(c.value/catMax)*100}%`, background: PIE_COLORS[idx % PIE_COLORS.length]}}></div></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-sm font-600 mb-3">শীর্ষ ক্লায়েন্ট</div>
+          {topClients.length === 0 && <div className={`text-xs ${theme.muted} py-6 text-center`}>এখনো কোনো আয় নেই</div>}
+          <div className="flex flex-col gap-2 mt-1">
+            {topClients.map(([name,amt],idx) => <div key={name} className="flex items-center justify-between text-sm"><span className={theme.muted}>{idx+1}. {name}</span><span className="font-num text-[#4FD1AE]">{fmt(amt)}</span></div>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ theme, income, expenses }) {
+  const [cursor, setCursor] = useState(new Date());
+  const year = cursor.getFullYear(), month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const [selected, setSelected] = useState(null);
+  const dayTotals = (day) => {
+    const iso = `${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const inc = income.filter(i=>i.date===iso && i.status==="Paid").reduce((s,i)=>s+Number(i.amount),0);
+    const exp = expenses.filter(e=>e.date===iso).reduce((s,e)=>s+Number(e.amount),0);
+    return { iso, inc, exp };
+  };
+  const cells = [];
+  for (let i=0;i<firstDay;i++) cells.push(null);
+  for (let d=1;d<=daysInMonth;d++) cells.push(d);
+  const monthName = cursor.toLocaleString("en-US", { month: "long", year: "numeric" });
+  const sel = selected ? dayTotals(selected) : null;
+  return (
+    <div>
+      <h1 className="font-display text-2xl font-700 mb-6">ক্যালেন্ডার</h1>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+        <div className="flex items-center justify-between mb-4">
+          <button onClick={()=>{setCursor(new Date(year,month-1,1)); setSelected(null);}} className="tap text-lg px-2">‹</button>
+          <span className="font-num text-sm font-600">{monthName}</span>
+          <button onClick={()=>{setCursor(new Date(year,month+1,1)); setSelected(null);}} className="tap text-lg px-2">›</button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center mb-1">{["Su","Mo","Tu","We","Th","Fr","Sa"].map(d=><div key={d} className={`text-[10px] ${theme.muted}`}>{d}</div>)}</div>
+        <div className="grid grid-cols-7 gap-1">
+          {cells.map((d,idx) => {
+            if (!d) return <div key={idx}></div>;
+            const { inc, exp } = dayTotals(d);
+            const isSel = selected === d;
+            return (
+              <button key={idx} onClick={()=>setSelected(d)} className={`aspect-square rounded-md flex flex-col items-center justify-center text-[10px] border tap ${isSel ? "border-[#E8A33D]" : theme.border} ${theme.surface2}`}>
+                <span>{d}</span>
+                {inc>0 && <span className="text-[#4FD1AE] text-[8px]">+</span>}
+                {exp>0 && <span className="text-[#F0654B] text-[8px]">−</span>}
+              </button>
+            );
+          })}
+        </div>
+        {sel && <div className={`mt-4 pt-3 border-t ${theme.border} flex justify-between text-sm font-num`}><span className={theme.muted}>{sel.iso}</span><span><span className="text-[#4FD1AE] mr-3">+{fmt(sel.inc)}</span><span className="text-[#F0654B]">−{fmt(sel.exp)}</span></span></div>}
+      </div>
+    </div>
+  );
+}
+
+function InvoiceView({ theme, showToast }) {
+  const [biz, setBiz] = useState({ name: "Unique Shopping", note: "Video Editing / Design Services" });
+  const [client, setClient] = useState({ name: "", address: "" });
+  const [items, setItems] = useState([{ id: uid(), desc: "", qty: 1, rate: 0 }]);
+  const [invoiceNo] = useState("INV-" + Date.now().toString().slice(-6));
+  const [date, setDate] = useState(todayISO());
+  const total = items.reduce((s,i)=>s+Number(i.qty)*Number(i.rate),0);
+  const updateItem = (id, patch) => setItems(items.map(i => i.id===id ? {...i,...patch} : i));
+  const addItem = () => setItems([...items, { id: uid(), desc:"", qty:1, rate:0 }]);
+  const removeItem = (id) => setItems(items.filter(i => i.id !== id));
+  const handlePrint = () => { window.print(); showToast("প্রিন্ট ডায়ালগ থেকে 'Save as PDF' বেছে নিন"); };
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 no-print">
+        <h1 className="font-display text-2xl font-700">ইনভয়েস</h1>
+        <button onClick={handlePrint} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-[#E8A33D] text-[#12151C] font-600 tap">🖨️ PDF ডাউনলোড</button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3 mb-4 no-print">
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-xs font-600 mb-2">আপনার তথ্য</div>
+          <Field label="ব্যবসার নাম"><input value={biz.name} onChange={e=>setBiz({...biz,name:e.target.value})} className={inputCls(theme)} /></Field>
+          <Field label="সাব-টাইটেল"><input value={biz.note} onChange={e=>setBiz({...biz,note:e.target.value})} className={inputCls(theme)} /></Field>
+        </div>
+        <div className={`${theme.surface} border ${theme.border} rounded-xl p-4`}>
+          <div className="text-xs font-600 mb-2">ক্লায়েন্টের তথ্য</div>
+          <Field label="নাম"><input value={client.name} onChange={e=>setClient({...client,name:e.target.value})} className={inputCls(theme)} /></Field>
+          <Field label="ঠিকানা / যোগাযোগ"><input value={client.address} onChange={e=>setClient({...client,address:e.target.value})} className={inputCls(theme)} /></Field>
+        </div>
+      </div>
+      <div className={`${theme.surface} border ${theme.border} rounded-xl p-6 print-area`}>
+        <div className="flex justify-between items-start mb-6 flex-wrap gap-2">
+          <div><div className="font-display text-xl font-700">{biz.name}</div><div className={`text-xs ${theme.muted}`}>{biz.note}</div></div>
+          <div className="text-right">
+            <div className="font-num text-sm">{invoiceNo}</div>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} className={`font-num text-xs bg-transparent outline-none ${theme.muted} no-print`} />
+          </div>
+        </div>
+        <div className="mb-4">
+          <div className={`text-xs ${theme.muted}`}>ইনভয়েস প্রাপক</div>
+          <div className="font-600">{client.name || "ক্লায়েন্টের নাম"}</div>
+          <div className={`text-xs ${theme.muted}`}>{client.address}</div>
+        </div>
+        <table className="w-full text-sm mb-4">
+          <thead><tr className={`text-left text-xs ${theme.muted} border-b ${theme.border}`}><th className="pb-2">বিবরণ</th><th className="pb-2 text-right">পরিমাণ</th><th className="pb-2 text-right">দর</th><th className="pb-2 text-right">মোট</th><th className="w-6 no-print"></th></tr></thead>
+          <tbody>
+            {items.map(it => (
+              <tr key={it.id} className={`border-b ${theme.border}`}>
+                <td className="py-2"><input value={it.desc} onChange={e=>updateItem(it.id,{desc:e.target.value})} placeholder="কাজের বিবরণ" className={`bg-transparent outline-none w-full ${theme.text}`} /></td>
+                <td className="py-2 text-right"><input type="number" value={it.qty} onChange={e=>updateItem(it.id,{qty:e.target.value})} className={`bg-transparent outline-none w-14 text-right font-num ${theme.text}`} /></td>
+                <td className="py-2 text-right"><input type="number" value={it.rate} onChange={e=>updateItem(it.id,{rate:e.target.value})} className={`bg-transparent outline-none w-20 text-right font-num ${theme.text}`} /></td>
+                <td className="py-2 text-right font-num">{fmt(it.qty*it.rate)}</td>
+                <td className="no-print"><button onClick={()=>removeItem(it.id)} className={theme.muted}>✕</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button onClick={addItem} className={`text-xs flex items-center gap-1 ${theme.muted} mb-4 no-print tap`}>+ আইটেম যোগ করুন</button>
+        <div className="flex justify-end"><div className="text-right"><div className={`text-xs ${theme.muted}`}>সর্বমোট</div><div className="font-num text-2xl font-700 text-[#E8A33D]">{fmt(total)}</div></div></div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<FinanceDashboard />);
+</script>
+</body>
+</html>
